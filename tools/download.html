@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vetro · Download benchmark</title>
+<!--
+  Race graphic for the chunked downloader. It plots REAL measurements:
+  bench_data.js is produced by bench_prepare.py from results.json (the Kotlin harness in tools/bench).
+  Nothing here is simulated: each lane replays the byte timeline of the median-time run of that method.
+  Deterministic: renderAt(t), t in [0, LOOP_SECONDS).
+-->
+<style>
+  html, body { margin: 0; background: #0A0A0B; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="800" height="450"></canvas>
+<script src="bench_data.js"></script>
+<script>
+const W = 800, H = 450;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const dpr = Number(new URLSearchParams(location.search).get('dpr') || 1);
+cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+ctx.scale(dpr, dpr);
+
+const B = window.BENCH;
+const METHODS = [
+  { key: 'single', name: 'Single stream', sub: '1 connection · the usual way', color: '#7A7A80', glow: null },
+  { key: 'equal6', name: 'Split in 6 equal parts', sub: '6 connections · classic', color: '#D4D4D9', glow: null },
+  { key: 'vetro',  name: 'Vetro chunk queue', sub: '6 connections · 1 MB chunks', color: '#E85002', glow: '#FF7A2E' },
+];
+const SIZE_MB = B.sizeBytes / 1048576;
+const SPEED = 5;                           // real seconds shown per scene second
+const maxReal = Math.max(...METHODS.map(m => B.methods[m.key].timeline.at(-1)[0] / 1000));
+const T_INTRO = 0.7, T_RACE = maxReal / SPEED, T_HOLD = 1.0, T_SUM = 4.2, T_OUT = 0.5;
+const LOOP = T_INTRO + T_RACE + T_HOLD + T_SUM + T_OUT;
+window.LOOP_SECONDS = LOOP;
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = (x) => 1 - Math.pow(1 - clamp(x), 3);
+const mix = (a, b, k) => a + (b - a) * k;
+function bytesAt(m, r) {                    // r = real seconds; linear interpolation of the measured samples
+  const tl = B.methods[m].timeline, ms = r * 1000;
+  if (ms <= 0) return 0; if (ms >= tl.at(-1)[0]) return B.sizeBytes;
+  let lo = 0, hi = tl.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tl[mid][0] <= ms) lo = mid; else hi = mid; }
+  const [t0, b0] = tl[lo], [t1, b1] = tl[hi];
+  return b0 + (b1 - b0) * ((ms - t0) / Math.max(1, t1 - t0));
+}
+function speedAt(m, r) {                    // MB/s over a 1.5 s trailing window
+  const w = 1.5, a = bytesAt(m, Math.max(0, r - w)), b = bytesAt(m, r);
+  return (b - a) / 1048576 / Math.min(w, Math.max(r, .001));
+}
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function text(s, x, y, size, weight, color, align = 'left', alpha = 1) {
+  ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+  ctx.font = `${weight} ${size}px "Segoe UI", system-ui, sans-serif`; ctx.fillText(s, x, y); ctx.globalAlpha = 1;
+}
+
+function background() {
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#19191C'); g.addColorStop(1, '#0A0A0B');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  const r = ctx.createRadialGradient(W * .92, -20, 10, W * .92, -20, 420); r.addColorStop(0, 'rgba(232,80,2,.20)'); r.addColorStop(1, 'rgba(232,80,2,0)');
+  ctx.fillStyle = r; ctx.fillRect(0, 0, W, H);
+}
+
+const LANE_Y = [118, 172, 226], BAR_X = 270, BAR_W = 352, BAR_H = 20;
+const CH = { x: 40, y: 300, w: 720, h: 112, ymax: Math.ceil(Math.max(...METHODS.map(m => Math.max(...B.methods[m.key].speed.map(p => p[1])))) + .5) };
+
+function drawRace(t, alpha) {
+  const k0 = ease(t / T_INTRO);
+  const real = clamp((t - T_INTRO) * SPEED, 0, maxReal);
+  ctx.save(); ctx.globalAlpha = alpha;
+
+  text('VETRO UPDATER', 40, 46, 12, 700, '#E85002', 'left', alpha * k0);
+  text(`Downloading a ${SIZE_MB.toFixed(1)} MB release`, 40, 76, 25, 700, '#FFFFFF', 'left', alpha * k0);
+  text(`${B.tag} · GitHub CDN · replayed from real runs (median of ${B.runs})`, 40, 98, 12.5, 400, 'rgba(255,255,255,.55)', 'left', alpha * k0);
+
+  const mm = String(Math.floor(real / 60)).padStart(2, '0'), ss = (real % 60).toFixed(1).padStart(4, '0');
+  ctx.globalAlpha = alpha * k0;
+  rr(W - 188, 30, 148, 44, 22); ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fill();
+  text(`${mm}:${ss}`, W - 114, 60, 22, 700, '#FFFFFF', 'center', alpha * k0);
+  text(`real time · shown ×${SPEED}`, W - 114, 90, 10.5, 600, 'rgba(255,255,255,.45)', 'center', alpha * k0);
+
+  METHODS.forEach((m, i) => {
+    const y = LANE_Y[i], k = ease((t - .12 * i) / T_INTRO) * alpha;
+    const done = real >= B.methods[m.key].timeline.at(-1)[0] / 1000;
+    const frac = bytesAt(m.key, real) / B.sizeBytes;
+    ctx.globalAlpha = k;
+    text(m.name, 40, y + 11, 15, 700, i === 2 ? '#FFFFFF' : 'rgba(255,255,255,.88)', 'left', k);
+    text(m.sub, 40, y + 28, 11.5, 400, 'rgba(255,255,255,.45)', 'left', k);
+    ctx.globalAlpha = k;
+    rr(BAR_X, y, BAR_W, BAR_H, BAR_H / 2); ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fill();
+    const fw = Math.max(BAR_H, BAR_W * frac);
+    if (frac > 0.002) {
+      rr(BAR_X, y, fw, BAR_H, BAR_H / 2);
+      if (m.glow) { const g = ctx.createLinearGradient(BAR_X, 0, BAR_X + fw, 0); g.addColorStop(0, m.color); g.addColorStop(1, m.glow); ctx.fillStyle = g; ctx.shadowColor = 'rgba(232,80,2,.55)'; ctx.shadowBlur = 14; }
+      else ctx.fillStyle = m.color;
+      ctx.fill(); ctx.shadowBlur = 0;
+    }
+    if (done) {
+      ctx.fillStyle = '#34C759'; ctx.beginPath(); ctx.arc(BAR_X + BAR_W + 22, y + 10, 9, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#08210F'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(BAR_X + BAR_W + 17.5, y + 10.5); ctx.lineTo(BAR_X + BAR_W + 21, y + 14); ctx.lineTo(BAR_X + BAR_W + 27, y + 6.5); ctx.stroke();
+      text(`${B.methods[m.key].median.toFixed(1)} s`, W - 40, y + 15, 16, 800, i === 2 ? '#FF7A2E' : '#FFFFFF', 'right', k);
+    } else {
+      text(`${(speedAt(m.key, real)).toFixed(1)} MB/s`, W - 40, y + 15, 14, 600, 'rgba(255,255,255,.82)', 'right', k);
+    }
+  });
+
+  const kc = ease((t - .35) / T_INTRO) * alpha;
+  text('THROUGHPUT, MB/s', CH.x, CH.y - 12, 10.5, 700, 'rgba(255,255,255,.45)', 'left', kc);
+  ctx.globalAlpha = kc; ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
+  for (let g = 0; g <= CH.ymax; g++) {
+    const y = CH.y + CH.h - (g / CH.ymax) * CH.h;
+    ctx.beginPath(); ctx.moveTo(CH.x + 26, y); ctx.lineTo(CH.x + CH.w, y); ctx.stroke();
+    text(String(g), CH.x + 16, y + 3.5, 10, 500, 'rgba(255,255,255,.35)', 'right', kc);
+  }
+  for (let s = 0; s <= maxReal; s += 10) {
+    const x = CH.x + 26 + (s / maxReal) * (CH.w - 26);
+    text(`${s}s`, x, CH.y + CH.h + 16, 10, 500, 'rgba(255,255,255,.35)', 'center', kc);
+  }
+  METHODS.forEach((m, i) => {
+    const sp = B.methods[m.key].speed;
+    ctx.globalAlpha = kc; ctx.beginPath(); let started = false, lastX = 0, lastY = 0;
+    sp.forEach(([s, v]) => {
+      if (s > real) return;
+      const x = CH.x + 26 + (s / maxReal) * (CH.w - 26), y = CH.y + CH.h - clamp(v / CH.ymax) * CH.h;
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      lastX = x; lastY = y;
+    });
+    if (!started) return;
+    ctx.lineWidth = i === 2 ? 3 : 2; ctx.lineJoin = 'round'; ctx.strokeStyle = m.color;
+    if (m.glow) { ctx.shadowColor = 'rgba(232,80,2,.6)'; ctx.shadowBlur = 10; }
+    ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(lastX, lastY, i === 2 ? 4 : 3, 0, 7); ctx.fill();
+  });
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+
+function drawSummary(t, alpha) {
+  const k = ease(t / .6) * alpha;
+  ctx.save();
+  const sMed = B.methods.single.median, eMed = B.methods.equal6.median, vMed = B.methods.vetro.median;
+  const ratio = sMed / vMed;
+  text('SUMMARY', 40, 56, 12, 700, '#E85002', 'left', k);
+  text('Median of ' + B.runs + ' real runs', 40, 82, 22, 700, '#FFFFFF', 'left', k);
+  text(`${B.tag} · ${SIZE_MB.toFixed(1)} MB · SHA-256 verified on every run`, 40, 104, 12.5, 400, 'rgba(255,255,255,.55)', 'left', k);
+
+  const shown = mix(1, ratio, ease(t / 1.1));
+  const g = ctx.createLinearGradient(0, 130, 0, 250); g.addColorStop(0, '#FF9A5B'); g.addColorStop(1, '#E85002');
+  ctx.globalAlpha = k; ctx.fillStyle = g; ctx.textAlign = 'left'; ctx.font = '800 112px "Segoe UI", system-ui, sans-serif';
+  ctx.shadowColor = 'rgba(232,80,2,.45)'; ctx.shadowBlur = 30; ctx.fillText(`${shown.toFixed(1)}×`, 36, 232); ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+  text('faster than a single stream', 44, 262, 17, 600, 'rgba(255,255,255,.85)', 'left', k);
+
+  const bx = 400, bw = 330, rows = [[METHODS[0], sMed], [METHODS[1], eMed], [METHODS[2], vMed]];
+  rows.forEach(([m, v], i) => {
+    const y = 140 + i * 52, kk = ease((t - .25 - .12 * i) / .7) * alpha;
+    text(m.name, bx, y + 2, 12.5, 600, 'rgba(255,255,255,.8)', 'left', kk);
+    ctx.globalAlpha = kk; rr(bx, y + 10, bw, 16, 8); ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fill();
+    const w = Math.max(16, bw * (v / sMed) * ease((t - .25 - .12 * i) / .7));
+    rr(bx, y + 10, w, 16, 8);
+    if (m.glow) { const gg = ctx.createLinearGradient(bx, 0, bx + w, 0); gg.addColorStop(0, m.color); gg.addColorStop(1, m.glow); ctx.fillStyle = gg; } else ctx.fillStyle = m.color;
+    ctx.fill(); ctx.globalAlpha = 1;
+    text(`${v.toFixed(1)} s`, bx + bw, y + 2, 13, 800, m.glow ? '#FF7A2E' : '#fff', 'right', kk);
+  });
+
+  const kf = ease((t - 1.4) / .8) * alpha;
+  text(`${(B.sizeBytes / 1048576 / sMed).toFixed(2)} MB/s  →  ${(B.sizeBytes / 1048576 / vMed).toFixed(2)} MB/s`, 44, 322, 20, 700, '#FFFFFF', 'left', kf);
+  text('Also: resumes from the first missing chunk after an interruption,', 44, 352, 13, 400, 'rgba(255,255,255,.6)', 'left', kf);
+  text('restarts a slow connection mid-chunk, verifies size and SHA-256.', 44, 372, 13, 400, 'rgba(255,255,255,.6)', 'left', kf);
+  text('Your network and CDN will differ — run tools/bench to measure yours.', 44, 408, 11.5, 400, 'rgba(255,255,255,.38)', 'left', kf);
+  ctx.restore();
+}
+
+function renderAt(tt) {
+  const t = ((tt % LOOP) + LOOP) % LOOP;
+  ctx.clearRect(0, 0, W, H); background();
+  const tSum0 = T_INTRO + T_RACE + T_HOLD;
+  const fadeOut = 1 - clamp((t - (LOOP - T_OUT)) / T_OUT);
+  if (t < tSum0 + .4) drawRace(Math.min(t, tSum0), (1 - clamp((t - tSum0) / .4)) * fadeOut);
+  if (t >= tSum0) drawSummary(t - tSum0, clamp((t - tSum0) / .4) * fadeOut);
+}
+window.renderAt = renderAt;
+renderAt(0);
+</script>
+</body>
+</html>

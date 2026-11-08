@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vetro · Motion scene</title>
+<!--
+  Isolated presentation scene for the Vetro motion system.
+  Deterministic: a pure function of time, renderAt(t), t in [0, 12).
+  All springs use the real stiffness / damping ratio from MotionTokens.kt, integrated numerically (1 ms).
+  Shown: (1) window growing out of a dock icon (sharedBounds + scaleToBounds),
+         (2) the "..." popover, (3) a notification stack: arrive / fling / reflow cascade.
+  ?theme=dark|light
+-->
+<style>
+  :root {
+    --brand: #E85002;
+    --page: #0A0A0B; --surface: #141416; --row: #1F1F22; --sep: rgba(255,255,255,.08);
+    --ink: rgba(255,255,255,.92); --ink2: rgba(255,255,255,.58);
+    --strip: #050506;
+    --dock-blur: 20px; --dock-sat: 1.20; --dock-con: 1.06; --dock-tint: rgba(20,20,20,.48); --dock-noise: .020;
+    --dock-rim: rgba(255,255,255,.14); --dock-hi: .55; --dock-shadow: 0 10px 30px rgba(0,0,0,.26);
+    --nt-blur: 24px; --nt-sat: 1.18; --nt-con: 1.05; --nt-tint: rgba(18,18,18,.62); --nt-noise: .022;
+    --nt-rim: rgba(255,255,255,.16); --nt-hi: .5; --nt-shadow: 0 10px 28px rgba(0,0,0,.22);
+    --solid: #1C1C1E;
+  }
+  :root[data-theme="light"] {
+    --page: #EDEDF0; --surface: #F4F4F7; --row: #FFFFFF; --sep: rgba(0,0,0,.07);
+    --ink: #1C1C1E; --ink2: rgba(28,28,30,.58);
+    --strip: #E3E3E8;
+    --dock-tint: rgba(255,255,255,.54); --dock-noise: .014; --dock-rim: rgba(255,255,255,.9); --dock-hi: .75;
+    --dock-sat: 1.18; --dock-con: 1.05; --dock-shadow: 0 10px 28px rgba(0,0,0,.14);
+    --nt-sat: 1.16; --nt-con: 1.04; --nt-tint: rgba(255,255,255,.66); --nt-noise: .016; --nt-rim: rgba(255,255,255,.85); --nt-hi: .7;
+    --nt-shadow: 0 10px 26px rgba(0,0,0,.12);
+    --solid: #FFFFFF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 390px; height: 820px; overflow: hidden; background: var(--strip);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  #cap { position: absolute; left: 0; top: 0; width: 390px; height: 60px; color: var(--ink); }
+  #cap .c { position: absolute; left: 18px; right: 18px; top: 9px; }
+  #cap b { display: block; font-size: 14px; font-weight: 800; letter-spacing: -.1px; }
+  #cap span { display: block; margin-top: 3px; font-size: 11.5px; color: var(--ink2); font-weight: 500; font-variant-numeric: tabular-nums; }
+  #cap i { color: var(--brand); font-style: normal; font-weight: 700; }
+  #phone { position: absolute; left: 0; top: 60px; width: 390px; height: 760px; overflow: hidden; border-radius: 28px; background: var(--page); isolation: isolate; }
+
+  .blob { position: absolute; border-radius: 50%; will-change: transform; }
+  .tile { position: absolute; border-radius: 26px; will-change: transform; }
+
+  .glass { position: absolute; isolation: isolate; }
+  .glass > .fx { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+  .glass > .fx.bg { z-index: -3; }
+  .glass > .fx.noise { z-index: -2; background-size: 128px 128px; image-rendering: pixelated; }
+  .glass > .fx.edge { z-index: 1; }
+  .glass > .fx.hi { z-index: 1; padding: .9px; -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; }
+  .glass > .fx.solid { z-index: -3; background: var(--solid); }
+  .glass .in { position: relative; z-index: 2; width: 100%; height: 100%; }
+  .m-dock { box-shadow: var(--dock-shadow); }
+  .m-dock > .bg { backdrop-filter: blur(var(--dock-blur)) saturate(var(--dock-sat)) contrast(var(--dock-con)); background: var(--dock-tint); }
+  .m-dock > .noise { opacity: var(--dock-noise); }
+  .m-dock > .edge { box-shadow: inset 0 0 0 1px var(--dock-rim); }
+  .m-dock > .hi { background: linear-gradient(135deg, rgba(255,255,255,var(--dock-hi)) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0) 62%, rgba(255,255,255,calc(var(--dock-hi) * .45)) 100%); }
+  .m-nt { box-shadow: var(--nt-shadow); }
+  .m-nt > .bg { backdrop-filter: blur(var(--nt-blur)) saturate(var(--nt-sat)) contrast(var(--nt-con)); background: var(--nt-tint); }
+  .m-nt > .noise { opacity: var(--nt-noise); }
+  .m-nt > .edge { box-shadow: inset 0 0 0 1px var(--nt-rim); }
+  .m-nt > .hi { background: linear-gradient(135deg, rgba(255,255,255,var(--nt-hi)) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0) 62%, rgba(255,255,255,calc(var(--nt-hi) * .45)) 100%); }
+
+  svg.ic { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .center { display: flex; align-items: center; justify-content: center; }
+  .dockitem { position: absolute; top: 0; width: 60px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--ink); }
+  .dockitem span { font-size: 10px; font-weight: 600; letter-spacing: .2px; }
+  .dockitem.active { color: var(--brand); }
+  .title { font-weight: 800; font-size: 18px; color: var(--ink); letter-spacing: -.2px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 48px; font-size: 15px; font-weight: 500; color: var(--ink); }
+  .row.accent { color: #FF6A1F; }
+  .row .ic { width: 20px; height: 20px; }
+  .ntbox { position: absolute; left: 14px; top: 13px; width: 46px; height: 46px; border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+  .nt1 { position: absolute; left: 72px; top: 14px; right: 14px; font-size: 14.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .nt2 { position: absolute; left: 72px; top: 36px; right: 14px; font-size: 13px; color: var(--ink2); white-space: nowrap; }
+  .nt3 { position: absolute; right: 16px; top: 15px; font-size: 11px; color: var(--ink2); }
+
+  /* settings window (solid surface, laid out at full size and scaled: ResizeMode.scaleToBounds) */
+  #win { position: absolute; overflow: hidden; background: var(--surface); box-shadow: 0 24px 60px rgba(0,0,0,.35); z-index: 20; }
+  #winIn { position: absolute; left: 0; top: 0; width: 390px; height: 760px; transform-origin: 0 0; }
+  .h1 { position: absolute; left: 24px; top: 78px; font-size: 34px; font-weight: 800; letter-spacing: -.8px; color: var(--ink); }
+  .grp { position: absolute; left: 16px; right: 16px; background: var(--row); border-radius: 18px; overflow: hidden; }
+  .srow { position: relative; display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 14px; color: var(--ink); font-size: 16px; font-weight: 500; }
+  .srow + .srow::before { content: ""; position: absolute; left: 62px; right: 0; top: 0; height: 1px; background: var(--sep); }
+  .srow .badge { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; }
+  .srow .badge .ic { width: 18px; height: 18px; stroke-width: 2; }
+  .srow .chev { margin-left: auto; color: var(--ink2); }
+  .srow .chev .ic { width: 16px; height: 16px; }
+  .tog { margin-left: auto; width: 46px; height: 28px; border-radius: 14px; background: #34C759; position: relative; }
+  .tog::after { content: ""; position: absolute; right: 3px; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+</style>
+</head>
+<body>
+<div id="cap"><div class="c" id="capA"></div><div class="c" id="capB"></div><div class="c" id="capC"></div></div>
+<div id="phone"></div>
+
+<script>
+const theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+document.documentElement.dataset.theme = theme;
+const T = 12;
+const phone = document.getElementById('phone');
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const noiseURL = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), img = g.createImageData(128, 128), r = mulberry32(0x5E7B0);
+  for (let i = 0; i < 128 * 128; i++) { const v = 128 + Math.floor(r() * 128) - 64; img.data.set([v, v, v, 255], i * 4); }
+  g.putImageData(img, 0, 0); return c.toDataURL();
+})();
+
+const I = {
+  home: '<path d="M3 11 12 3l9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+  stats: '<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><path d="M17 14v6M14 17h6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  tune: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  back: '<path d="M19 12H5M11.5 5.5 5 12l6.5 6.5"/>',
+  dots: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
+  check: '<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.4 2.7 2.7 5-5.6"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 4 3.2 3-2.4 4 3.2"/>',
+  unlink: '<path d="m9.5 14.5 5-5"/><path d="M11 6.7 12.4 5.3a3.7 3.7 0 0 1 5.3 5.2L16.3 12"/><path d="M13 17.3l-1.4 1.4a3.7 3.7 0 0 1-5.3-5.2L7.7 12"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="9.5" rx="3"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+  chev: '<path d="m9 5 7 7-7 7"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+  globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c3 3.2 3 13.8 0 17M12 3.5c-3 3.2-3 13.8 0 17"/>',
+  bell: '<path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/>',
+  sync: '<path d="M20 11a8 8 0 0 0-14-4M4 5v4h4M4 13a8 8 0 0 0 14 4M20 19v-4h-4"/>',
+  down: '<path d="M12 4v11M7.5 11 12 15.5 16.5 11M5 20h14"/>',
+  disk: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.1"/>',
+};
+const svg = (k) => `<svg class="ic" viewBox="0 0 24 24">${I[k]}</svg>`;
+
+function glass(cls, style, inner = '', parent = phone) {
+  const el = document.createElement('div');
+  el.className = `glass ${cls}`; Object.assign(el.style, style);
+  el.innerHTML = `<div class="fx bg"></div><div class="fx noise" style="background-image:url(${noiseURL})"></div><div class="fx edge"></div><div class="fx hi"></div><div class="in">${inner}</div>`;
+  parent.appendChild(el); return el;
+}
+
+/* ---------------- background: calm drifting colour (cheap to encode, still non-uniform) ---------------- */
+const bg = [
+  { c: '#E85002', d: 300, x: 20,  y: 90,  ax: 70, ay: 90, m: 1, ph: 0.00, o: .85 },
+  { c: '#7F5BFF', d: 340, x: 170, y: 330, ax: 80, ay: 70, m: 1, ph: 0.33, o: .75 },
+  { c: '#00C2A8', d: 280, x: 40,  y: 520, ax: 90, ay: 60, m: 1, ph: 0.66, o: .75 },
+  { c: '#FF4FA3', d: 220, x: 220, y: 600, ax: 60, ay: 80, m: 2, ph: 0.10, o: .70 },
+].map(b => { const e = document.createElement('div'); e.className = 'blob'; Object.assign(e.style, { width: b.d + 'px', height: b.d + 'px', background: `radial-gradient(circle at 50% 50%, ${b.c} 0%, ${b.c}00 70%)`, opacity: b.o }); phone.appendChild(e); return { b, e }; });
+const tiles = [
+  { c: ['#FFC93C', '#FF5F6D'], w: 150, h: 210, x: 28,  y: 190, ax: 24, ay: 40, m: 1, ph: .20, r: -8 },
+  { c: ['#12C2E9', '#5B5BF0'], w: 150, h: 250, x: 210, y: 150, ax: 20, ay: 46, m: 1, ph: .70, r: 7 },
+  { c: ['#B6F500', '#00B87A'], w: 160, h: 190, x: 120, y: 470, ax: 30, ay: 36, m: 1, ph: .45, r: -4 },
+].map(b => { const e = document.createElement('div'); e.className = 'tile'; Object.assign(e.style, { width: b.w + 'px', height: b.h + 'px', background: `linear-gradient(150deg, ${b.c[0]}, ${b.c[1]})` }); phone.appendChild(e); return { b, e }; });
+
+/* ---------------- springs (MotionTokens) ---------------- */
+const DT = 0.001, kP = (ms) => { const w = 2 * Math.PI / (ms / 1000); return w * w; };
+function track(init, events) {
+  let x = init, v = 0, cur = null, ei = -1; const out = new Float32Array(Math.round(T / DT) + 2);
+  for (let i = 0; i < out.length; i++) {
+    const t = i * DT; while (ei + 1 < events.length && events[ei + 1].t <= t) { ei++; cur = events[ei]; }
+    if (cur) { const c = 2 * cur.z * Math.sqrt(cur.k); v += (-cur.k * (x - cur.target) - c * v) * DT; x += v * DT; }
+    out[i] = x;
+  } return out;
+}
+const at = (tr, t) => tr[Math.min(tr.length - 1, Math.max(0, Math.round(t / DT)))];
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const bez = (x1, y1, x2, y2) => (x) => { // cubic-bezier easing, solved by bisection
+  if (x <= 0) return 0; if (x >= 1) return 1; let lo = 0, hi = 1, t = x;
+  for (let i = 0; i < 30; i++) { t = (lo + hi) / 2; const cx = 3 * (1 - t) ** 2 * t * x1 + 3 * (1 - t) * t * t * x2 + t ** 3; if (cx < x) lo = t; else hi = t; }
+  return 3 * (1 - t) ** 2 * t * y1 + 3 * (1 - t) * t * t * y2 + t ** 3;
+};
+const EaseEnter = bez(0.16, 1, 0.3, 1), EaseExit = bez(0.32, 0.72, 0, 1);
+
+const LARGE_IN  = { z: .92, k: 186.6 }, LARGE_OUT = { z: 1, k: 438.6 };   // largeSurfaceEnter / Exit
+const MENU_POP  = { z: .72, k: 503.6 }, MENU_OUT  = { z: 1, k: 700 };     // menuPop / sheetDismissForced
+const NT_ARRIVE = { z: .80, k: kP(380) }, NT_FLING = { z: 1, k: kP(220) }; // notificationArrive / Fling
+const PRESS_IN  = { z: 1, k: kP(80) }, SNAPPY = { z: .86, k: kP(200) };    // springPressIn / springSnappy
+const reflow = (order) => ({ z: .72, k: kP(340 * (1 + .08 * Math.min(order, 6))) }); // notificationReflowOffset
+
+/* ---------------- timeline ---------------- */
+const T_PRESS = 0.45, T_OPEN = 0.55, T_CLOSE = 3.5;                 // window
+const T_MORE_PRESS = 4.7, T_MENU_OPEN = 4.8, T_MENU_CLOSE = 7.0;    // popover
+const ARRIVE = [8.1, 7.9, 7.7];                                     // card 0 (top) lands last
+const FLING = [9.7, 10.5, 11.1];
+
+const winP   = track(0, [{ t: T_OPEN, target: 1, ...LARGE_IN }, { t: T_CLOSE, target: 0, ...LARGE_OUT }]);
+const setS   = track(1, [{ t: T_PRESS, target: .82, ...PRESS_IN }, { t: T_PRESS + .08, target: 1, ...SNAPPY }]);
+const moreS  = track(1, [{ t: T_MORE_PRESS, target: .86, ...PRESS_IN }, { t: T_MORE_PRESS + .09, target: 1, ...SNAPPY }]);
+const menuP  = track(0, [{ t: T_MENU_OPEN, target: 1, ...MENU_POP }, { t: T_MENU_CLOSE, target: 0, ...MENU_OUT }]);
+const cardY  = [0, 1, 2].map(i => track(-170, [{ t: ARRIVE[i], target: 0, ...NT_ARRIVE }]));
+const cardX  = [0, 1, 2].map(i => track(0, [{ t: FLING[i], target: 560, ...NT_FLING }]));
+const cardSlot = [0, 1, 2].map(i => {
+  const ev = [];
+  let slot = i;
+  for (let j = 0; j < i; j++) { slot -= 1; ev.push({ t: FLING[j], target: slot, ...reflow(i - j) }); }
+  return track(i, ev);
+});
+
+/* ---------------- chrome ---------------- */
+const back = glass('m-dock', { left: '16px', top: '16px', width: '48px', height: '48px', borderRadius: '24px' }, `<div class="center" style="width:100%;height:100%;color:var(--ink)">${svg('back')}</div>`);
+const titleCap = glass('m-dock', { left: '75px', top: '16px', width: '240px', height: '48px', borderRadius: '24px' }, `<div class="center title" style="width:100%;height:100%">Collection</div>`);
+const more = glass('m-dock', { right: '16px', top: '16px', width: '48px', height: '48px', borderRadius: '24px' }, `<div class="center" style="width:100%;height:100%;color:var(--ink)">${svg('dots')}</div>`);
+const dock = glass('m-dock', { left: '45px', bottom: '22px', width: '300px', height: '66px', borderRadius: '33px' }, '');
+const dockIn = dock.querySelector('.in');
+let setIcon;
+[['home', 'Home', 1], ['stats', 'Stats', 0], ['plus', 'Add', 0], ['tune', 'Settings', 0]].forEach(([k, l, a], i) => {
+  const it = document.createElement('div'); it.className = 'dockitem' + (a ? ' active' : ''); it.style.left = (6 + i * 72) + 'px';
+  it.innerHTML = `<span style="display:flex">${svg(k)}</span><span>${l}</span>`; dockIn.appendChild(it);
+  if (k === 'tune') setIcon = it;
+});
+
+// popover
+const menu = glass('m-dock', { right: '16px', top: '76px', width: '232px', borderRadius: '22px', transformOrigin: '100% 0%', zIndex: 8 }, `
+  <div style="padding:6px 0">
+    <div class="row">${svg('check')}Mark as watched</div><div class="row">${svg('image')}Change cover</div>
+    <div class="row accent">${svg('unlink')}Wrong source</div><div class="row">${svg('lock')}Move to secret folder</div>
+  </div>`);
+menu.querySelector('.in').style.height = 'auto';
+const menuRows = [...menu.querySelectorAll('.row')];
+
+// notification stack
+const NT = [['#FF7A2E', 'Frieren · Season 2, Episode 9', 'New episode just released'], ['#5B5BF0', 'Dungeon Meshi · Episode 14', 'Subtitles are ready'], ['#00B87A', 'Solo Leveling · Episode 7', 'Added to your collection']];
+const cards = NT.map(([c, a, b], i) => {
+  const el = glass('m-nt', { left: '24px', top: '84px', width: '342px', height: '72px', borderRadius: '26px', zIndex: 10 - i, transformOrigin: '50% 0%' },
+    `<div class="ntbox" style="background:linear-gradient(135deg, ${c}, ${c}CC)"></div><div class="nt1">${a}</div><div class="nt2">${b}</div><div class="nt3">now</div>`);
+  const solid = document.createElement('div'); solid.className = 'fx solid'; el.insertBefore(solid, el.firstChild);
+  return { el, solid, glassFx: [...el.querySelectorAll('.bg,.noise,.hi')] };
+});
+
+// settings window
+const win = document.createElement('div'); win.id = 'win'; phone.appendChild(win);
+const winIn = document.createElement('div'); winIn.id = 'winIn'; win.appendChild(winIn);
+const groups = [
+  { y: 150, rows: [['sun', '#E85002', 'Appearance'], ['globe', '#0A84FF', 'Language'], ['bell', '#FF9F0A', 'Notifications', 'tog']] },
+  { y: 346, rows: [['sync', '#34C759', 'Sync'], ['down', '#5E5CE6', 'Updates'], ['disk', '#8E8E93', 'Storage']] },
+  { y: 542, rows: [['info', '#64D2FF', 'About Vetro']] },
+];
+winIn.insertAdjacentHTML('beforeend', `<div class="h1">Settings</div>`);
+const winRows = [];
+groups.forEach(g => {
+  const el = document.createElement('div'); el.className = 'grp'; el.style.top = g.y + 'px';
+  g.rows.forEach(([ic, col, label, tog]) => {
+    const r = document.createElement('div'); r.className = 'srow';
+    r.innerHTML = `<div class="badge" style="background:${col}">${svg(ic)}</div>${label}${tog ? '<div class="tog"></div>' : `<div class="chev">${svg('chev')}</div>`}`;
+    el.appendChild(r); winRows.push(r);
+  }); winIn.appendChild(el);
+});
+const winTitle = winIn.querySelector('.h1');
+const SRC = { x: 279, y: 679, w: 36, h: 36, r: 18 }, DST = { x: 0, y: 0, w: 390, h: 760, r: 28 };
+
+const capEls = ['capA', 'capB', 'capC'].map(id => document.getElementById(id));
+capEls[0].innerHTML = `<b>Window from a dock icon</b><span>scaleToBounds · enter <i>ζ 0.92</i> T 0.46 s · exit <i>ζ 1.0</i></span>`;
+capEls[1].innerHTML = `<b>Popover “…”</b><span>menuPop <i>ζ 0.72</i> · scale 0.82→1 · exit <i>ζ 1.0</i></span>`;
+capEls[2].innerHTML = `<b>Notification stack</b><span>arrive <i>ζ 0.80</i> · fling <i>ζ 1.0</i> · reflow <i>ζ 0.72</i> +8 %</span>`;
+
+const lerp = (a, b, k) => a + (b - a) * k;
+function renderAt(tt) {
+  const t = ((tt % T) + T) % T, u = t / T;
+  bg.forEach(({ b, e }) => { const a = 2 * Math.PI * (u * b.m + b.ph); e.style.transform = `translate(${b.x + Math.sin(a) * b.ax}px, ${b.y + Math.cos(a) * b.ay}px)`; });
+  tiles.forEach(({ b, e }) => { const a = 2 * Math.PI * (u * b.m + b.ph); e.style.transform = `translate(${b.x + Math.sin(a) * b.ax}px, ${b.y + Math.cos(a) * b.ay}px) rotate(${b.r + Math.sin(a) * 3}deg)`; });
+
+  const sec = [[0.2, 4.4], [4.5, 7.5], [7.6, 11.9]];
+  capEls.forEach((el, i) => { const [a, b] = sec[i]; el.style.opacity = clamp((t - a) / .25) * (1 - clamp((t - (b - .25)) / .25)); });
+
+  const p = at(winP, t), pc = Math.max(0, p);
+  win.style.visibility = pc > .004 ? 'visible' : 'hidden';
+  const w = lerp(SRC.w, DST.w, pc), h = lerp(SRC.h, DST.h, pc), x = lerp(SRC.x, DST.x, pc), y = lerp(SRC.y, DST.y, pc);
+  Object.assign(win.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', borderRadius: lerp(SRC.r, DST.r, Math.min(1, pc)) + 'px' });
+  const s = w / 390; winIn.style.transform = `translate(0px, ${(h - 760 * s) / 2}px) scale(${s})`;
+  const reveal = EaseEnter(clamp((t - (T_OPEN + .2)) / .14)), hide = 1 - EaseExit(clamp((t - T_CLOSE) / .10));
+  const contentA = t < T_CLOSE ? reveal : Math.min(reveal, hide);
+  winTitle.style.opacity = contentA;
+  winRows.forEach((r, i) => { const st = EaseEnter(clamp((t - (T_OPEN + .2 + .024 * Math.min(i, 6))) / .14)); r.style.opacity = t < T_CLOSE ? st : Math.min(st, hide); r.style.transform = `translateY(${(1 - st) * 8}px)`; });
+  setIcon.style.opacity = 1 - clamp(pc * 25);
+  setIcon.style.transform = `scale(${at(setS, t)})`;
+
+  const mp = at(menuP, t);
+  menu.style.visibility = mp > .001 ? 'visible' : 'hidden';
+  menu.style.opacity = clamp(mp); menu.style.transform = `scale(${.82 + .18 * mp})`;
+  menuRows.forEach((r, i) => { const st = EaseEnter(clamp((t - (T_MENU_OPEN + .06 + .024 * i)) / .14)); r.style.opacity = t < T_MENU_CLOSE ? st : 1; });
+  more.style.transform = `scale(${at(moreS, t)})`;
+
+  cards.forEach((c, i) => {
+    const slot = Math.max(0, at(cardSlot[i], t)), dy = at(cardY[i], t), dx = at(cardX[i], t);
+    const sc = 1 - .045 * slot, ty = 12 * slot + dy;
+    c.el.style.transform = `translate(${dx}px, ${ty}px) scale(${sc})`;
+    const g = clamp(1 - slot);
+    c.glassFx.forEach(f => f.style.opacity = f.classList.contains('noise') ? g * (theme === 'dark' ? .022 : .016) : g);
+    c.solid.style.opacity = 1 - g;
+    c.el.querySelector('.in').style.opacity = clamp(1 - slot * 1.4);
+    c.el.style.visibility = (dy < -160 || dx > 520) ? 'hidden' : 'visible';
+  });
+}
+window.renderAt = renderAt; window.LOOP_SECONDS = T; renderAt(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# Generated release archives: they are attached to each GitHub Release, not committed
+/dist/
+
+# Captured frames and scratch output of tools/render_video.py
+/frames/
+*.part
+*.part.map
+
+# Benchmark harness (tools/bench): Gradle output and test downloads
+tools/bench/build/
+tools/bench/.gradle/
+tools/bench/dl/
+tools/bench/dl_verify/
+.gradle/
+*.apk
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editors and OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and local env
+*.log
+*.env
+local.properties

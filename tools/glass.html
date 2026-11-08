@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vetro · Frosted glass scene</title>
+<meta name="viewport" content="width=390, initial-scale=1">
+<!--
+  Isolated presentation scene for the Vetro frosted-glass material.
+  Deterministic: everything is a pure function of time, call renderAt(t) with t in [0, 8).
+  The material parameters are copied 1:1 from FrostedMaterials.kt (dp -> css px, 1:1).
+  Springs use the real stiffness / damping from MotionTokens.kt, integrated numerically.
+
+  ?theme=dark|light
+-->
+<style>
+  :root {
+    --brand: #E85002;
+    --page: #0A0A0B;
+    --ink: rgba(255,255,255,.92);
+    --ink2: rgba(255,255,255,.62);
+
+    /* FrostedMaterials.dock() dark */
+    --dock-blur: 20px; --dock-sat: 1.20; --dock-con: 1.06;
+    --dock-tint: rgba(20,20,20,.48); --dock-noise: .020;
+    --dock-rim: rgba(255,255,255,.14); --dock-hi: .55;
+    --dock-shadow: 0 10px 30px rgba(0,0,0,.26);
+    /* FrostedMaterials.notification() dark */
+    --nt-blur: 24px; --nt-sat: 1.18; --nt-con: 1.05;
+    --nt-tint: rgba(18,18,18,.62); --nt-noise: .022;
+    --nt-rim: rgba(255,255,255,.16); --nt-hi: .5;
+    --nt-shadow: 0 10px 28px rgba(0,0,0,.22);
+    /* FrostedMaterials.playerControl() — theme independent */
+    --pc-blur: 24px; --pc-sat: 1.16; --pc-con: 1.05;
+    --pc-tint: rgba(20,20,20,.42); --pc-noise: .020;
+    --pc-rim: rgba(255,255,255,.16); --pc-hi: .5;
+    --pc-shadow: 0 10px 24px rgba(0,0,0,.22);
+  }
+  :root[data-theme="light"] {
+    --page: #EDEDF0;
+    --ink: #1C1C1E;
+    --ink2: rgba(28,28,30,.58);
+    --dock-blur: 20px; --dock-sat: 1.18; --dock-con: 1.05;
+    --dock-tint: rgba(255,255,255,.54); --dock-noise: .014;
+    --dock-rim: rgba(255,255,255,.9); --dock-hi: .75;
+    --dock-shadow: 0 10px 28px rgba(0,0,0,.14);
+    --nt-blur: 24px; --nt-sat: 1.16; --nt-con: 1.04;
+    --nt-tint: rgba(255,255,255,.66); --nt-noise: .016;
+    --nt-rim: rgba(255,255,255,.85); --nt-hi: .7;
+    --nt-shadow: 0 10px 26px rgba(0,0,0,.12);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 390px; height: 760px; overflow: hidden; background: var(--page);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  #stage { position: relative; width: 390px; height: 760px; overflow: hidden; background: var(--page); }
+
+  /* ---------- content that scrolls under the glass ---------- */
+  .col { position: absolute; top: 0; width: 175px; will-change: transform; }
+  .poster { position: relative; width: 175px; border-radius: 18px; overflow: hidden; margin-bottom: 12px; color: #fff; }
+  .poster .shape { position: absolute; border-radius: 50%; }
+  .poster .stripes { position: absolute; inset: 0; opacity: .22;
+    background: repeating-linear-gradient(115deg, rgba(255,255,255,.9) 0 3px, transparent 3px 14px); }
+  .poster .big { position: absolute; left: 12px; bottom: 34px; font-weight: 900; font-size: 46px; letter-spacing: -1.5px; line-height: .9; text-shadow: 0 2px 0 rgba(0,0,0,.18); }
+  .poster .tag { position: absolute; left: 12px; bottom: 12px; font-size: 11px; font-weight: 700; letter-spacing: .8px; opacity: .92; }
+  .poster .lines { position: absolute; right: 12px; top: 14px; width: 54px; }
+  .poster .lines i { display: block; height: 4px; border-radius: 2px; background: rgba(255,255,255,.75); margin-bottom: 5px; }
+
+  /* ---------- the material ---------- */
+  .glass { position: absolute; isolation: isolate; }
+  .glass > .fx { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+  .glass > .fx.bg { z-index: -3; }
+  .glass > .fx.noise { z-index: -2; background-size: 128px 128px; image-rendering: pixelated; }
+  .glass > .fx.edge { z-index: 1; }
+  .glass > .fx.hi { z-index: 1; padding: .9px;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; }
+  .glass .in { position: relative; z-index: 2; width: 100%; height: 100%; }
+
+  .m-dock { box-shadow: var(--dock-shadow); }
+  .m-dock > .bg { backdrop-filter: blur(var(--dock-blur)) saturate(var(--dock-sat)) contrast(var(--dock-con));
+    -webkit-backdrop-filter: blur(var(--dock-blur)) saturate(var(--dock-sat)) contrast(var(--dock-con)); background: var(--dock-tint); }
+  .m-dock > .noise { opacity: var(--dock-noise); }
+  .m-dock > .edge { box-shadow: inset 0 0 0 1px var(--dock-rim); }
+  .m-dock > .hi { background: linear-gradient(135deg, rgba(255,255,255,var(--dock-hi)) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0) 62%, rgba(255,255,255,calc(var(--dock-hi) * .45)) 100%); }
+
+  .m-nt { box-shadow: var(--nt-shadow); }
+  .m-nt > .bg { backdrop-filter: blur(var(--nt-blur)) saturate(var(--nt-sat)) contrast(var(--nt-con));
+    -webkit-backdrop-filter: blur(var(--nt-blur)) saturate(var(--nt-sat)) contrast(var(--nt-con)); background: var(--nt-tint); }
+  .m-nt > .noise { opacity: var(--nt-noise); }
+  .m-nt > .edge { box-shadow: inset 0 0 0 1px var(--nt-rim); }
+  .m-nt > .hi { background: linear-gradient(135deg, rgba(255,255,255,var(--nt-hi)) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0) 62%, rgba(255,255,255,calc(var(--nt-hi) * .45)) 100%); }
+
+  .m-pc { box-shadow: var(--pc-shadow); }
+  .m-pc > .bg { backdrop-filter: blur(var(--pc-blur)) saturate(var(--pc-sat)) contrast(var(--pc-con));
+    -webkit-backdrop-filter: blur(var(--pc-blur)) saturate(var(--pc-sat)) contrast(var(--pc-con)); background: var(--pc-tint); }
+  .m-pc > .noise { opacity: var(--pc-noise); }
+  .m-pc > .edge { box-shadow: inset 0 0 0 1px var(--pc-rim); }
+  .m-pc > .hi { background: linear-gradient(135deg, rgba(255,255,255,var(--pc-hi)) 0%, rgba(255,255,255,0) 38%, rgba(255,255,255,0) 62%, rgba(255,255,255,calc(var(--pc-hi) * .45)) 100%); }
+
+  /* ---------- chrome ---------- */
+  svg.ic { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .center { display: flex; align-items: center; justify-content: center; }
+  .dockitem { position: absolute; top: 0; width: 60px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--ink); }
+  .dockitem span { font-size: 10px; font-weight: 600; letter-spacing: .2px; }
+  .dockitem.active { color: var(--brand); }
+  .title { font-weight: 800; font-size: 18px; color: var(--ink); letter-spacing: -.2px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 48px; font-size: 15px; font-weight: 500; color: var(--ink); }
+  .row.accent { color: #FF6A1F; }
+  .row .ic { width: 20px; height: 20px; }
+  .ntbox { position: absolute; left: 14px; top: 13px; width: 46px; height: 46px; border-radius: 12px;
+    background: linear-gradient(135deg, #FF7A2E, #E85002); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+  .nt1 { position: absolute; left: 72px; top: 14px; right: 14px; font-size: 14.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .nt2 { position: absolute; left: 72px; top: 36px; right: 14px; font-size: 13px; color: var(--ink2); white-space: nowrap; }
+  .nt3 { position: absolute; right: 16px; top: 15px; font-size: 11px; color: var(--ink2); }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const theme = params.get('theme') === 'light' ? 'light' : 'dark';
+document.documentElement.dataset.theme = theme;
+const T = 8;                       // loop length, seconds
+const stage = document.getElementById('stage');
+
+/* ---------------- noise tile (FrostedGlass.kt: 128x128, seed 0x5E7B0, grey 128 +- 64) ---------------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const noiseURL = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), img = g.createImageData(128, 128), r = mulberry32(0x5E7B0);
+  for (let i = 0; i < 128 * 128; i++) { const v = 128 + Math.floor(r() * 128) - 64; img.data.set([v, v, v, 255], i * 4); }
+  g.putImageData(img, 0, 0); return c.toDataURL();
+})();
+
+/* ---------------- icons ---------------- */
+const I = {
+  home: '<path d="M3 11 12 3l9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+  stats: '<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><path d="M17 14v6M14 17h6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  tune: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m20.5 20.5-4.7-4.7"/>',
+  back: '<path d="M19 12H5M11.5 5.5 5 12l6.5 6.5"/>',
+  dots: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
+  check: '<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.4 2.7 2.7 5-5.6"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 4 3.2 3-2.4 4 3.2"/>',
+  unlink: '<path d="m9.5 14.5 5-5"/><path d="M11 6.7 12.4 5.3a3.7 3.7 0 0 1 5.3 5.2L16.3 12"/><path d="M13 17.3l-1.4 1.4a3.7 3.7 0 0 1-5.3-5.2L7.7 12"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="9.5" rx="3"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+  play: '<path d="M8.5 5.8v12.4a.6.6 0 0 0 .9.5l9.6-6.2a.6.6 0 0 0 0-1L9.4 5.3a.6.6 0 0 0-.9.5z" fill="currentColor"/>',
+  heart: '<path d="M12 19.5s-7-4.4-7-9.7A4 4 0 0 1 12 7.5a4 4 0 0 1 7 2.3c0 5.3-7 9.7-7 9.7z"/>',
+  mark: '<path d="M7 4h10v16l-5-3.6L7 20z"/>',
+};
+const svg = (k) => `<svg class="ic" viewBox="0 0 24 24">${I[k]}</svg>`;
+
+/* ---------------- glass factory ---------------- */
+function glass(cls, style, inner = '') {
+  const el = document.createElement('div');
+  el.className = `glass ${cls}`;
+  Object.assign(el.style, style);
+  el.innerHTML = `<div class="fx bg"></div><div class="fx noise" style="background-image:url(${noiseURL})"></div>` +
+    `<div class="fx edge"></div><div class="fx hi"></div><div class="in">${inner}</div>`;
+  stage.appendChild(el); return el;
+}
+
+/* ---------------- scrolling content ---------------- */
+const palettes = [
+  ['#FF7A2E', '#E8185A'], ['#12C2E9', '#5B5BF0'], ['#B6F500', '#00B87A'], ['#FFC93C', '#FF5F6D'],
+  ['#7F5BFF', '#FF4FA3'], ['#00D4B0', '#0A7CFF'], ['#FF9A8B', '#FF5E3A'], ['#2DE1C2', '#1F3A8A'],
+];
+const names = ['NOVA', 'KAIJU', 'ECHO', 'SORA', 'RIN', 'MIKU', 'ONI', 'AKIRA', 'LUNA', 'HANA', 'YUKI', 'ZEN'];
+const rnd = mulberry32(20261108);
+function buildColumn(x, count, dir) {
+  const col = document.createElement('div'); col.className = 'col'; col.style.left = x + 'px'; stage.appendChild(col);
+  let h = 0; const cards = [];
+  for (let i = 0; i < count; i++) {
+    const hh = 190 + Math.floor(rnd() * 90), p = palettes[Math.floor(rnd() * palettes.length)], n = names[Math.floor(rnd() * names.length)];
+    cards.push({ hh, p, n, ep: 1 + Math.floor(rnd() * 24), sh: [rnd(), rnd(), rnd()] }); h += hh + 12;
+  }
+  const mk = () => cards.map(c => `
+    <div class="poster" style="height:${c.hh}px;background:linear-gradient(${150 + Math.round(c.sh[0] * 40)}deg,${c.p[0]},${c.p[1]})">
+      <div class="shape" style="width:${110 + c.sh[1] * 70}px;height:${110 + c.sh[1] * 70}px;right:${-30 - c.sh[2] * 30}px;top:${40 + c.sh[0] * 40}px;background:rgba(255,255,255,.22)"></div>
+      <div class="shape" style="width:60px;height:60px;left:${10 + c.sh[2] * 50}px;top:${20 + c.sh[1] * 30}px;background:rgba(0,0,0,.18)"></div>
+      <div class="stripes"></div>
+      <div class="lines"><i></i><i style="width:70%"></i><i style="width:45%"></i></div>
+      <div class="big">${c.n}</div><div class="tag">EP ${String(c.ep).padStart(2, '0')} · 2026</div>
+    </div>`).join('');
+  col.innerHTML = mk() + mk();
+  return { col, period: h, dir };
+}
+const colA = buildColumn(14, 6, -1), colB = buildColumn(201, 6, +1);
+
+/* ---------------- springs: real MotionTokens, integrated at 1 ms ---------------- */
+const DT = 0.001;
+const kOfPeriod = (ms) => { const w = 2 * Math.PI / (ms / 1000); return w * w; };
+function track(init, events) {
+  let x = init, v = 0, cur = null, ei = -1; const out = new Float32Array(Math.round(T / DT) + 2);
+  for (let i = 0; i < out.length; i++) {
+    const t = i * DT;
+    while (ei + 1 < events.length && events[ei + 1].t <= t) { ei++; cur = events[ei]; }
+    if (cur) { const c = 2 * cur.z * Math.sqrt(cur.k); v += (-cur.k * (x - cur.target) - c * v) * DT; x += v * DT; }
+    out[i] = x;
+  }
+  return out;
+}
+const at = (tr, t) => tr[Math.min(tr.length - 1, Math.max(0, Math.round(t / DT)))];
+
+const MENU_POP   = { z: 0.72, k: 503.6 };          // MotionTokens.menuPop
+const MENU_CLOSE = { z: 1.0,  k: 700 };            // MotionTokens.sheetDismissForced
+const NT_ARRIVE  = { z: 0.80, k: kOfPeriod(380) }; // notificationArrive
+const NT_FLING   = { z: 1.00, k: kOfPeriod(220) }; // notificationFling
+const PRESS_IN   = { z: 1.00, k: kOfPeriod(80) };  // springPressIn
+const SNAPPY     = { z: 0.86, k: kOfPeriod(200) }; // springSnappy
+
+const T_MENU_OPEN = 1.0, T_MENU_CLOSE = 3.7;
+const T_NT_IN = 4.4, T_NT_OUT = 7.0;
+const T_PRESS_PLUS = 5.3, T_PRESS_SEARCH = 6.2;
+
+const menuP  = track(0, [{ t: T_MENU_OPEN, target: 1, ...MENU_POP }, { t: T_MENU_CLOSE, target: 0, ...MENU_CLOSE }]);
+const ntY    = track(-150, [{ t: T_NT_IN, target: 0, ...NT_ARRIVE }]);
+const ntX    = track(0, [{ t: T_NT_OUT, target: 560, ...NT_FLING }]);
+const plusS  = track(1, [{ t: T_PRESS_PLUS, target: .84, ...PRESS_IN }, { t: T_PRESS_PLUS + .09, target: 1, ...SNAPPY }]);
+const srchS  = track(1, [{ t: T_PRESS_SEARCH, target: .84, ...PRESS_IN }, { t: T_PRESS_SEARCH + .09, target: 1, ...SNAPPY }]);
+const moreS  = track(1, [{ t: T_MENU_OPEN - .12, target: .86, ...PRESS_IN }, { t: T_MENU_OPEN - .03, target: 1, ...SNAPPY }]);
+
+/* ---------------- chrome (all siblings of the scrolling content, like the app) ---------------- */
+const back = glass('m-dock', { left: '16px', top: '16px', width: '48px', height: '48px', borderRadius: '24px' }, `<div class="center" style="width:100%;height:100%;color:var(--ink)">${svg('back')}</div>`);
+const titleCap = glass('m-dock', { left: '75px', top: '16px', width: '240px', height: '48px', borderRadius: '24px' }, `<div class="center title" style="width:100%;height:100%">Collection</div>`);
+const more = glass('m-dock', { right: '16px', top: '16px', width: '48px', height: '48px', borderRadius: '24px' }, `<div class="center" style="width:100%;height:100%;color:var(--ink)">${svg('dots')}</div>`);
+
+const bubbleDefs = [
+  { ic: 'play',  d: 58, cls: 'm-pc',   x: 40,  y: 360, ax: 34, ay: 60, m: 1, ph: 0.00 },
+  { ic: 'heart', d: 46, cls: 'm-dock', x: 250, y: 400, ax: 40, ay: 50, m: 2, ph: 0.25 },
+  { ic: 'mark',  d: 40, cls: 'm-pc',   x: 140, y: 500, ax: 60, ay: 36, m: 1, ph: 0.55 },
+];
+const bubbles = bubbleDefs.map(b => ({ b, el: glass(b.cls, { left: '0', top: '0', width: b.d + 'px', height: b.d + 'px', borderRadius: '50%' },
+  `<div class="center" style="width:100%;height:100%;color:${b.cls === 'm-pc' ? '#fff' : 'var(--ink)'}"><span style="transform:scale(${b.d > 50 ? 1.15 : 1});display:flex">${svg(b.ic)}</span></div>`) }));
+
+const dock = glass('m-dock', { left: '45px', bottom: '22px', width: '300px', height: '66px', borderRadius: '33px' }, '');
+const dockIn = dock.querySelector('.in');
+[['home', 'Home', 1], ['stats', 'Stats', 0], ['plus', 'Add', 0], ['tune', 'Settings', 0]].forEach(([k, l, a], i) => {
+  const it = document.createElement('div'); it.className = 'dockitem' + (a ? ' active' : ''); it.style.left = (6 + i * 72) + 'px';
+  it.innerHTML = `<span style="display:flex">${svg(k)}</span><span>${l}</span>`; dockIn.appendChild(it);
+  if (k === 'plus') window.plusEl = it.firstElementChild;
+});
+const search = glass('m-dock', { right: '22px', bottom: '100px', width: '52px', height: '52px', borderRadius: '26px' }, `<div class="center" style="width:100%;height:100%;color:var(--ink)">${svg('search')}</div>`);
+
+// overflow menu (DetailsOverflowMenu: scale .82 -> 1 about the top-right corner, alpha = progress)
+const menu = glass('m-dock', { right: '16px', top: '76px', width: '232px', borderRadius: '22px', transformOrigin: '100% 0%' }, `
+  <div style="padding:6px 0">
+    <div class="row">${svg('check')}Mark as watched</div>
+    <div class="row">${svg('image')}Change cover</div>
+    <div class="row accent">${svg('unlink')}Wrong source</div>
+    <div class="row">${svg('lock')}Move to secret folder</div>
+  </div>`);
+menu.querySelector('.in').style.height = 'auto';
+
+const nt = glass('m-nt', { left: '24px', top: '84px', width: '342px', height: '72px', borderRadius: '26px' },
+  `<div class="ntbox"></div><div class="nt1">Frieren · Season 2, Episode 9</div><div class="nt2">New episode just released</div><div class="nt3">now</div>`);
+
+/* ---------------- frame ---------------- */
+function renderAt(tt) {
+  const t = ((tt % T) + T) % T, u = t / T;
+  colA.col.style.transform = `translateY(${-u * colA.period}px)`;
+  colB.col.style.transform = `translateY(${-colB.period + u * colB.period}px)`;
+
+  bubbles.forEach(({ b, el }) => {
+    const a = 2 * Math.PI * (u * b.m + b.ph);
+    el.style.transform = `translate(${b.x + Math.sin(a) * b.ax}px, ${b.y + Math.sin(a * 2 + 1) * b.ay * .5 + Math.cos(a) * b.ay * .5}px)`;
+  });
+
+  const p = at(menuP, t);
+  menu.style.visibility = p > .001 ? 'visible' : 'hidden';
+  menu.style.opacity = Math.max(0, Math.min(1, p));
+  menu.style.transform = `scale(${.82 + .18 * p})`;
+  more.style.transform = `scale(${at(moreS, t)})`;
+
+  nt.style.transform = `translate(${at(ntX, t)}px, ${at(ntY, t)}px)`;
+
+  window.plusEl.style.transform = `scale(${at(plusS, t)})`;
+  search.style.transform = `scale(${at(srchS, t)})`;
+}
+window.renderAt = renderAt;
+window.LOOP_SECONDS = T;
+renderAt(0);
+</script>
+</body>
+</html>
