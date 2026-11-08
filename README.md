@@ -101,15 +101,19 @@ against the real release: interrupted at 12 MB, resumed from 12 MB, verified, no
 
 ## About the videos
 
-They are **browser reproductions, not screen recordings of the Android app**: small HTML scenes in
-[`tools/`](tools) that apply the exact material parameters (`FrostedMaterials`) and the exact spring constants
-(`MotionTokens`, integrated numerically) and are rendered frame by frame with headless Chromium at 2× density.
-The download graphic replays the measured byte timelines of the median runs. Treat them as a faithful illustration
-of the numbers, not as a pixel-exact capture of Android's `RenderEffect`.
+The glass and motion videos are **real screen recordings**: the [`demo/`](demo) Android app (Jetpack Compose) uses
+exactly the code from the guides (`FrostedGlass.kt`, `MotionTokens.kt`) and plays each scene in a loop by itself;
+[`tools/record_device.py`](tools/record_device.py) records it with `adb screenrecord` on a connected phone
+(here: Android 16, 1080×2400, 120 Hz), finds the loop-start marker the app draws, cuts exactly one loop and puts
+the dark and light recordings side by side. Building the demo is also how the guides were checked: the code in them
+compiles and runs as published.
+
+The download graphic is a rendered chart (not a screen recording) that replays the measured byte timelines of the
+median runs.
 
 The inline previews are looping animated WebP (full colour, infinite loop; GitHub strips `autoplay`/`loop` from
-`<video>` tags, so an MP4 would need a click). The MP4s next to them are the full-quality masters (H.264, CRF 16).
-Every scene is a pure function of time and ends exactly where it starts, so it loops without a seam.
+`<video>` tags, so an MP4 would need a click). The MP4s next to them are the full-quality masters. Every scene ends
+exactly where it starts, so it loops without a seam.
 
 ## Repository layout
 
@@ -117,25 +121,33 @@ Every scene is a pure function of time and ends exactly where it starts, so it l
 frostedglass/   SKILL.md · GUIDE.txt
 animation/      SKILL.md · GUIDE.txt
 download/       SKILL.md · GUIDE.txt
+demo/           Android demo app the glass and motion videos are recorded from
 assets/video/   *.webp (README previews) · *.mp4 (full quality)
 results/        raw benchmark data
-tools/          scenes, video renderer, benchmark harness, release packer
+tools/          device recorder, chart renderer, benchmark harness, release packer
 dist/           frostedglass.zip · animation.zip · download.zip   (generated; attached to each Release)
 ```
 
 Rebuild everything:
 
 ```bash
-# 1. capture lossless frames (60 fps, 2x density), one folder per theme
-python tools/render_video.py capture tools/glass.html frames/glass_dark  --query theme=dark  --fps 60 --viewport 390x760 --scale 2
-python tools/render_video.py capture tools/glass.html frames/glass_light --query theme=light --fps 60 --viewport 390x760 --scale 2
-# 2. encode MP4 + looping WebP (dark | light side by side)
-python tools/render_video.py encode assets/video/frostedglass frames/glass_dark frames/glass_light --fps 60 --webp-fps 20 --webp-width 880 --webp-quality 70
-# 3. pack the three archives
+# glass + motion: build the demo, install it, record one loop per theme on a connected phone, combine
+(cd demo && ./gradlew assembleDebug) && adb install -r demo/app/build/outputs/apk/debug/app-debug.apk
+python tools/record_device.py record glass  dark  clips      # then: glass light, motion dark, motion light
+python tools/record_device.py combine glass  clips assets/video/frostedglass
+python tools/record_device.py combine motion clips assets/video/animation
+
+# download chart (rendered from the measured data)
+python tools/render_video.py capture tools/download.html frames/dl --query dpr=2 --fps 30 --viewport 800x450 --scale 2
+python tools/render_video.py encode assets/video/download_benchmark frames/dl --fps 30 --webp-fps 15 --webp-width 800 --webp-quality 75
+
+# the three archives
 python tools/build_release.py
 ```
 
-Requires Python 3, `pip install playwright imageio-ffmpeg pillow` and `playwright install chromium`.
+Needs: Android SDK + JDK 21 and a phone with Android 12+ (for the demo), Python 3 with
+`pip install imageio-ffmpeg pillow numpy playwright` (+ `playwright install chromium` for the chart only).
+The demo's `local.properties` (your SDK path) is not committed.
 
 ## Licence
 

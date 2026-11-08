@@ -24,7 +24,10 @@ in `GUIDE.txt` of the same archive.
 6. **Stagger** list rows by 24 ms each, capped at 6 items.
 7. **Hand-over of velocity**: when a gesture releases a surface, the finger velocity is the spring's initial
    condition. Never restart from rest.
-8. **Never hard-code** `spring(dampingRatio = …, stiffness = …)` in a screen. If a needed behaviour is missing,
+8. **Never fade glass with alpha.** A half-transparent glass shows the sharp backdrop through it and reads as the
+   glass popping in. Scale/move the glass fully opaque (panel alpha saturating within the first ~25 % of the motion)
+   and fade only its content.
+9. **Never hard-code** `spring(dampingRatio = …, stiffness = …)` in a screen. If a needed behaviour is missing,
    add a token with a comment saying where the numbers come from.
 
 ## 2. The token table
@@ -61,6 +64,9 @@ Overshoot of an under-damped spring: `OS = exp(−πζ / √(1 − ζ²))` (ζ 0
   source side for the way back (separate enter/exit springs; both are `SpringSpec<Rect>` with
   `Rect.VisibilityThreshold`).
 - Clip the overlay with the corner radius of the target (`OverlayClip(shape)`).
+- Pass `enter = EnterTransition.None, exit = ExitTransition.None` to `sharedBounds`: by default it cross-fades and
+  the growing window looks half transparent. One `boundsTransform` lambda can pick enter/exit by direction
+  (`target.width > initial.width`).
 - Content: `fadeIn(easeEnter(delayMillis = 200))`; rows stagger 24 ms.
 - The pressed dock icon first squeezes with `springPressIn`, releases with `springSnappy`.
 - Do not add or remove modifiers above a `layerBackdrop` while the transition runs.
@@ -70,8 +76,8 @@ Overshoot of an under-damped spring: `OS = exp(−πζ / √(1 − ζ²))` (ζ 0
 - Panel is drawn inside the screen (not a `Popup`), anchored to the button's corner.
 - `progress` is `animateFloatAsState(if (expanded) 1f else 0f, if (expanded) menuPop() else sheetDismissForced())`.
 - `graphicsLayer { transformOrigin = TransformOrigin(1f, 0f); scale = 0.82f + 0.18f * progress;
-  alpha = progress.coerceIn(0f, 1f) }` — the pop grows from the top-right corner and overshoots slightly because
-  ζ = 0.72.
+  alpha = (progress / 0.25f).coerceIn(0f, 1f) }` — the pop grows from the top-right corner and overshoots slightly
+  because ζ = 0.72. The panel is opaque within the first quarter of the motion; only the rows fade slowly.
 - Rows fade in with a 60 ms delay and 24 ms stagger. Render the panel only while `progress > 0.001`.
 - A transparent full-screen scrim sibling closes on outside tap; `BackHandler` closes it too.
 
@@ -79,16 +85,16 @@ Overshoot of an under-damped spring: `OS = exp(−πζ / √(1 − ζ²))` (ζ 0
 
 Slots 0..N (0 = top). Each plate has: `y` (arrive), `x` (fling), and a continuous `slot` value.
 
-- Arrive: `y` from above the screen to 0 with `notificationArrive`; plates land bottom-to-top so the top one
-  lands last.
+- Arrive: `y` from above the screen to 0 with `notificationArrive`; oldest plate first, every new plate lands on
+  top and pushes the others back one slot.
 - Slot geometry: `translateY = 12 dp × slot`, `scale = 1 − 0.045 × slot` (illustrative numbers).
 - Fling: swipe past 32 % of the width, or faster than 1000 dp/s → `x` to off-screen with `notificationFling`
   using the finger velocity as initial velocity.
 - Reflow: when a plate leaves, every plate behind it animates `slot` down by 1 with `notificationReflow`, where
   the period of the n-th plate is `0.340 s × (1 + 0.08 × n)` (n capped at 6). **No timers**: the longer period
   alone makes the wave run down the stack without cutting off anyone's velocity.
-- Material: only the top plate is glass; plates behind are opaque and their text is hidden — crossfade glass → solid
-  as `slot` goes 0 → 1.
+- Material: the same glass for every plate; fade the text of plates behind (`1 − 1.4 × slot`). Do not swap glass for
+  an opaque fill while a plate moves back — the swap is visible as the glass popping out.
 
 ## 6. What to build
 

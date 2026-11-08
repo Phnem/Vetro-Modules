@@ -164,10 +164,10 @@ object MotionTokens {
 }
 ```
 
-Imports: androidx.compose.animation.core.{CubicBezierEasing, Easing, FiniteAnimationSpec, Spring, SpringSpec,
-spring, tween}, androidx.compose.ui.geometry.Rect, androidx.compose.ui.unit.IntOffset.
-(The excerpt is trimmed from the app's file; the numbers are untouched. If a symbol is missing, you only need the
-ones you actually use.)
+Imports: androidx.compose.animation.core.{CubicBezierEasing, Easing, FiniteAnimationSpec, SpringSpec,
+VisibilityThreshold, spring, tween}, androidx.compose.ui.geometry.Rect, androidx.compose.ui.unit.IntOffset.
+(`VisibilityThreshold` is needed for Rect.VisibilityThreshold / IntOffset.VisibilityThreshold.) This exact object is
+compiled and run in the demo app of the Vetro Modules repository; the numbers are untouched.
 
 
 5. PATTERN A — A WINDOW THAT GROWS OUT OF A DOCK ICON
@@ -208,7 +208,14 @@ Box(
 ```
 
 In the app the DESTINATION screens use the Enter spring and the DOCK side uses the Exit spring, so opening and
-closing run on different physics.
+closing run on different physics. The demo app gets the same result with one lambda picked by direction:
+
+    boundsTransform = { initial, target ->
+        if (target.width > initial.width) MotionTokens.largeSurfaceEnterBounds else MotionTokens.largeSurfaceExitBounds
+    }
+
+Also pass `enter = EnterTransition.None, exit = ExitTransition.None` to sharedBounds on both sides. By default it
+cross-fades (fadeIn / fadeOut) and the growing window looks half transparent.
 
 Content of the window:
 
@@ -253,7 +260,9 @@ if (progress > 0.001f) {                                // render only while vis
                 transformOrigin = TransformOrigin(1f, 0f)       // grow from the button's corner
                 val s = 0.82f + 0.18f * progress
                 scaleX = s; scaleY = s
-                alpha = progress.coerceIn(0f, 1f)
+                // The glass is opaque by 25 % of the motion. alpha = progress would show the SHARP backdrop through
+                // a half-transparent glass for several frames and read as the glass popping in; fade the ROWS instead.
+                alpha = (progress / 0.25f).coerceIn(0f, 1f)
             }
             .widthIn(min = 232.dp)
             .clip(RoundedCornerShape(22.dp))
@@ -282,16 +291,18 @@ plus NotificationDismissFraction (32 % of width) and NotificationFlingVelocityDp
   reflow    plates behind the leaving one move one slot forward on notificationReflowOffset(order),
             order = distance behind the leaving plate. Each next period is 8 % longer -> a wave, no timers.
 
-The demo scene in this project uses (illustrative, not taken from the app): translateY = 12 dp × slot,
-scale = 1 − 0.045 × slot, only the top plate is glass, plates behind are opaque with hidden text (glass -> solid
-crossfade as slot goes 0 -> 1). Arrival order in the demo: back plate first, top plate last.
+The demo app uses (illustrative numbers, not taken from the app's tray): translateY = 12 dp × slot,
+scale = 1 − 0.045 × slot. Plates arrive oldest first; every new plate lands on top and pushes the others back one
+slot (slot = number of newer plates still in front). The material is the same glass for every plate and the text of
+plates behind is faded (1 − 1.4 × slot): swapping glass for an opaque fill while a plate moves back is visible as
+the glass popping out.
 
 
 8. WHAT THE DEMO VIDEO SHOWS
 ----------------------------
 
-The video in the project README is a browser reproduction driven by the same numbers (ζ, stiffness) integrated
-numerically; it is not a screen capture of the Android app. Captions inside the video name the token that runs at
+The videos in the project README were recorded on a real phone (Android 16, 120 Hz) with the demo app that uses
+exactly this code and these tokens. Captions inside the video name the token that runs at
 that moment.
 
 

@@ -300,9 +300,10 @@ private val NoiseTile: ImageBitmap by lazy {
 }
 ```
 
-(The file does not compile-check inside this archive; it was extracted from a project that builds. If your Kotlin
-or backdrop version differs, expect small API drift in `Highlight` / `Shadow` / `drawBackdrop` parameter names —
-the structure and the numbers stay.)
+This exact file is compiled and run in the demo app of the Vetro Modules repository (Kotlin 2.4.21, AGP 8.13.2,
+Compose BOM 2025.12.00, backdrop 1.0.0) on a real phone: Android 16, 120 Hz. If your Kotlin or backdrop version
+differs, expect small API drift in `Highlight` / `Shadow` / `drawBackdrop` parameter names — the structure and
+the numbers stay.
 
 
 4. USING IT
@@ -401,6 +402,13 @@ Text colours that worked: dark theme white @ 0.92 for titles, @ 0.62 for seconda
   The dropdown menu is solid
       It lives in a Popup / DropdownMenu window. Draw it inside the screen.
 
+  A panel or plate "pops in" when it appears or disappears
+      You fade the glass with alpha. A half-transparent glass shows the SHARP, un-blurred backdrop through it for
+      several frames, which reads as the glass popping in. Animate scale / offset with the glass fully opaque
+      (alpha = (progress / 0.25f).coerceIn(0f, 1f): opaque in the first quarter of the motion) and fade only the
+      content. Same for stacks: do not swap glass for an opaque fill while a plate moves back; keep the glass and
+      fade the plate's text instead.
+
   Glass flickers / is recaptured on every frame during page swipes
       Pause backdrop re-capture while a pager swipe is in progress (the app has a small PinnableBackdrop wrapper for
       this; it is not part of this guide because it is tied to its navigation).
@@ -429,5 +437,5 @@ Text colours that worked: dark theme white @ 0.92 for titles, @ 0.62 for seconda
 ----------
 
 Material and tuning: Vetro (GPL-3.0). Backdrop capture, blur and highlight primitives: the Kyant backdrop library —
-respect its licence. The browser animation in the project README is a reproduction of these parameters, not a
-screen capture of the Android app.
+respect its licence. The videos in the project README were recorded on a real phone (Android 16, 120 Hz) with the
+demo app that uses exactly this code.

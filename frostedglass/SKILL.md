@@ -107,7 +107,8 @@ shadow radius 24 dp black @ 0.22, fallback `#E6202020`.
 
 Same as notification but `blur = 0`, saturation = contrast = 1, tint fully opaque (`#1C1C1E` / white),
 grain 0, no highlight, no shadow. Opaque on purpose: through a translucent stack the text of lower plates shows
-through and turns into noise.
+through and turns into noise. Alternative that avoids a visible material swap while a plate is pushed back: keep the
+same glass for every plate and fade the text of plates that lie behind (the demo app does this).
 
 ## 4. Structure rules (these cause the nasty bugs)
 
@@ -125,6 +126,10 @@ through and turns into noise.
    `(backdrop, shape, material, blurPx, noiseBrush)`.
 6. Moving the glass: translate with `Modifier.offset { }` or by animating the surface's own position. Wrapping the
    backdrop-providing content in a `graphicsLayer` that changes at runtime was observed to flatten the glass.
+7. **Never fade glass with alpha.** A half-transparent glass shows the sharp, un-blurred backdrop through it for
+   several frames, which reads as the glass popping in. Animate scale/offset with the glass fully opaque (panel alpha
+   saturating within the first ~25 % of the motion: `alpha = (progress / 0.25f).coerceIn(0f, 1f)`) and fade only the
+   content (text, icons).
 
 ## 5. API < 31 fallback
 
@@ -152,6 +157,7 @@ Adapt names/packages to the user's project, keep the numbers.
 - [ ] Toggling theme or recomposing does not make the glass go flat.
 - [ ] On API 26–30 the fallback material renders without crashing and without fake blur.
 - [ ] The dropdown panel is glass (not solid): it is drawn inside the screen, not in a Popup.
+- [ ] While a panel/plate animates in or out you never see the sharp backdrop through a half-transparent glass.
 - [ ] No hard-coded alpha values outside the materials object.
 
 ## 8. Report back

@@ -31,3 +31,11 @@ desktop.ini
 *.log
 *.env
 local.properties
+
+# Demo app (Android) build output and local config
+demo/build/
+demo/.gradle/
+demo/app/build/
+demo/local.properties
+demo/.idea/
+/clips/
